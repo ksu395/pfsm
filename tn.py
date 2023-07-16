@@ -38,9 +38,9 @@ def partially_fused_softmax(qkt, v) -> torch.tensor:
     # compute the matmul, one output pixel at a time (easily parallelized)
     y = torch.empty(outsize)
     for i in range(outsize[0]):
+        # elementwise portion of softmax, one row of qkt
+        qkti = np.exp(qkt[i] - qkti_max[i]) / sum_of_exp[i]
         for j in range(outsize[1]):
-            # elementwise portion of softmax, one row of qkt
-            qkti = np.exp(qkt[i] - qkti_max[i]) / sum_of_exp[i]
             # vector dot product with column of v
             y[i][j] = np.vdot(qkti, v[:,j]).item()
 
