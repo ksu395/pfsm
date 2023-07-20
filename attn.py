@@ -13,12 +13,50 @@ value = torch.randn(seq_len, embed_dim).cuda()
 # if enabled, need to aloow for more tolerance in allclose
 torch.backends.cuda.matmul.allow_tf32 = False
 
+use_gpu = True
+
+from torch.utils.cpp_extension import load
+
+my_max = load(name='my_max', sources=['max.cpp', 'max.cu'], verbose=True)
+
+
 
 # See paper "Speed Is All You Need: On-Device Acceleration of Large Diffusion Models via GPU-Aware Optimizations"
 # Specifically section 3.2.1 and figure 2
 # For simplicity. this code does not consider the needed backward function
 # For simplicity. this code does not consider batch > 1
-def partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tensor:
+
+# Functionally, this code performs the following operations:
+#
+# scores = torch.nn.functional.softmax(qkt, dim=-1)
+# y = torch.matmul(scores, v)
+#
+# the idea here is to never create the scores matrix, as it can be quite large (seq_len x seq_len)
+# instead, we do the softmax reduction ops first, which have smaller results, and then defer
+# the softmax elementwise ops as part of matmul
+
+def cu_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tensor:
+
+    # compute the denominator, one per row
+    # this could be done in a single pass by using online softmax
+    nrows, ncols = v.size()
+    qkti_max = my_max.max(qkt, -1)
+    sum_of_exp = [torch.exp(qkt[i] - qkti_max[i]).sum().item() for i in range(nrows)]
+
+    # compute the matmul, one output pixel at a time (easily parallelized)
+    y = torch.empty_like(v)
+    for i in range(nrows):
+        # elementwise portion of softmax, one row of qkt
+        qkti = torch.exp(qkt[i] - qkti_max[i]) / sum_of_exp[i]
+        for j in range(ncols):
+            # vector dot product with column of v
+            y[i][j] = torch.vdot(qkti, v[:, j]).item()
+
+    # all done :)
+    return y
+
+
+def py_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tensor:
     # functionally, this code performs the following operations:
     #
     # scores = torch.nn.functional.softmax(qkt, dim=-1)
@@ -50,22 +88,26 @@ def partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tensor:
     return y
 
 
-def my_sdp_attn(q: torch.tensor, k: torch.tensor, v: torch.tensor) -> torch.tensor:
+def my_attn(q: torch.tensor, k: torch.tensor, v: torch.tensor) -> torch.tensor:
     q = q / (embed_dim ** 0.5)
     qkt = torch.matmul(q, k.transpose(-2, -1))
-    return partially_fused_softmax(qkt, v)
+    if use_gpu:
+        y = cu_partially_fused_softmax(qkt, v)
+    else:
+        y = py_partially_fused_softmax(qkt, v)
+    return y
 
 
 # see "Attention Is All You Need"
-def gold_sdp_attn(q: torch.tensor, k: torch.tensor, v: torch.tensor) -> torch.tensor:
+def sdp_attn(q: torch.tensor, k: torch.tensor, v: torch.tensor) -> torch.tensor:
     return torch.nn.functional.scaled_dot_product_attention(q, k, v)
 
 
 # compare reference implementation with ours to ensure they produce essentially equal results
 with torch.inference_mode():
-    attn_output_golden = gold_sdp_attn(query, key, value)
+    attn_output_golden = sdp_attn(query, key, value)
     print(F'attn_output_golden:\n{attn_output_golden}')
-    attn_output = my_sdp_attn(query, key, value)
+    attn_output = my_attn(query, key, value)
     print(F'attn_output:\n{attn_output}')
     rtol, atol = 1e-04, 1e-07
     if not torch.allclose(attn_output_golden, attn_output, rtol=rtol, atol=atol):
