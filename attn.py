@@ -42,8 +42,8 @@ def cu_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tens
     # this could be done in a single pass by using online softmax
     nrows, ncols = v.size()
     qkti_max = my_max.max(qkt, -1)
-    # qkti_max2 = qkt.max(-1)[0]  # ignore indices
-    # assert(torch.allclose(qkti_max, qkti_max2))
+    qkti_max2 = qkt.max(-1)[0]  # ignore indices
+    assert(torch.allclose(qkti_max, qkti_max2))
     sum_of_exp = my_sum_exp.sum_exp(qkt, qkti_max)
     # sum_of_exp2 = [torch.exp(qkt[i] - qkti_max[i]).sum().item() for i in range(nrows)]
     # assert(torch.allclose(sum_of_exp, torch.Tensor(sum_of_exp2).cuda()));

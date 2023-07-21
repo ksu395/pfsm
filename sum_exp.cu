@@ -18,13 +18,14 @@ __global__ void sum_exp_cuda_kernel(
     const int column = blockIdx.x * blockDim.x + threadIdx.x;
     const int row = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (row < num_rows_in && column < num_cols_out)
+    if (row < num_rows_in && column < num_cols_out) {
         if (do_exp) {
             output[row][column] = expf(input[row][column] - max_i[row]) +
                                   expf(input[row][column + num_cols_out] - max_i[row]);
         } else {
             output[row][column] = input[row][column] + input[row][column + num_cols_out];
         }
+    }
 }
 
 torch::Tensor partial_sum_exp_cuda(
