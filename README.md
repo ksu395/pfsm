@@ -1,17 +1,18 @@
 # PFSM: Partially Fused SoftMax
 
-See paper "Speed Is All You Need: On-Device Acceleration of Large Diffusion Models via GPU-Aware Optimizations"
-Specifically section 3.2.1 and figure 2
-For simplicity. this code does not consider the needed backward function
-For simplicity. this code does not consider batch > 1
+See paper "Speed Is All You Need: On-Device Acceleration of Large Diffusion Models via GPU-Aware Optimizations", 
+specifically section 3.2.1 and figure 2.<br><br>
+For simplicity. this code does not consider:
+- backward functions
+- batch > 1
 
-Functionally, this code performs the following operations:
-`scores = torch.nn.functional.softmax(qkt, dim=-1)
-y = torch.matmul(scores, v)`
+Functionally, this code performs the following operations:<br>
+```
+scores = torch.nn.functional.softmax(qkt, dim=-1)
+y = torch.matmul(scores, v)
+```
 
-The idea here is to never create the scores matrix, as it can be quite large (seq_len, seq_len)
-instead, we do the softmax reduction ops first, which have much smaller results, and then defer
-the softmax elementwise ops as part of matmul
+The idea here is to never create the scores matrix, as it can be quite large (seq_len, seq_len).  Instead, we do the softmax reduction ops first, which have much smaller results, and then defer the softmax elementwise ops as part of matmul.
 
 
 ## Objective
@@ -26,8 +27,8 @@ Per the docs, kernels that utilize TensorCores can only apply position-independe
 
 ## Reduction Ops
 
-The initial implementation split the input in half and each thread reduced one pixel from left half with one pixel from the right half, and then recursively continue until only a single column of output remains.
-Functionally, this worked fine, but the first partial output is still quite large (seq_len, seq_len / 2).  
+The initial implementation split the input in half and each thread reduced one pixel from left half with one pixel from the right half, and then recursively continued until only a single column of output remained.
+Functionally, this worked fine, but the first partial output is still quite large (seq_len, seq_len / 2).
 This is counter to the purpose of this fusion: to reduce intermediate tensor sizes.
 
 While searching the Internet for a better solution, I came upon an Nvidia presentation by Mark Harris on "Optimizing Parallel Reduction in CUDA".
