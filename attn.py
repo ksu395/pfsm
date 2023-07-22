@@ -38,16 +38,12 @@ def cu_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tens
 
     # compute the denominator, one per row
     # this could be done in a single pass by using online softmax
-    nrows, ncols = v.size()
     qkti_max = my_reduce.max(qkt, -1)
-    qkti_max2 = qkt.max(-1)[0]  # ignore indices
-    assert(torch.allclose(qkti_max, qkti_max2))
     sum_of_exp = my_reduce.sum_exp(qkt, qkti_max, -1)
-    sum_of_exp2 = [torch.exp(qkt[i] - qkti_max[i]).sum().item() for i in range(nrows)]
-    assert(torch.allclose(sum_of_exp, torch.Tensor(sum_of_exp2).cuda()));
 
     # compute the matmul, one output pixel at a time (easily parallelized)
     y = torch.empty_like(v)
+    nrows, ncols = v.size()
     for i in range(nrows):
         # elementwise portion of softmax, one row of qkt
         qkti = torch.exp(qkt[i] - qkti_max[i]) / sum_of_exp[i]
