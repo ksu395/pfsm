@@ -5,7 +5,7 @@ from torch.utils.cpp_extension import load
 torch.manual_seed(13)
 
 seq_len = 1024
-embed_dim = 100
+embed_dim = 128
 
 query = torch.randn(seq_len, embed_dim).cuda()
 key = torch.randn(seq_len, embed_dim).cuda()
@@ -14,10 +14,12 @@ value = torch.randn(seq_len, embed_dim).cuda()
 # disable tf32 since my implementation uses vector dot product, not matmul
 # if enabled, need to allow for more tolerance in allclose
 torch.backends.cuda.matmul.allow_tf32 = False
+rtol, atol = 1e-04, 1e-07
 
 use_gpu = True
 
 my_reduce = load(name='my_reduce', sources=['reduce.cpp', 'reduce.cu'], verbose=True)
+my_matmul = load(name='my_matmul', sources=['matmul.cpp', 'matmul.cu'], verbose=True)
 
 
 # See paper "Speed Is All You Need: On-Device Acceleration of Large Diffusion Models via GPU-Aware Optimizations"
@@ -36,45 +38,35 @@ my_reduce = load(name='my_reduce', sources=['reduce.cpp', 'reduce.cu'], verbose=
 
 def cu_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tensor:
 
-    # compute the denominator, one per row
-    # this could be done in a single pass by using online softmax
+    # compute the max and denominator, one per row
     qkti_max = my_reduce.max(qkt, -1)
     sum_of_exp = my_reduce.sum_exp(qkt, qkti_max, -1)
 
-    # compute the matmul, one output pixel at a time (easily parallelized)
-    y = torch.empty_like(v)
+    # compute the fused matmul
+    y = my_matmul.fused_matmul(qkt, qkti_max, sum_of_exp, v)
+
+    y2 = torch.empty_like(v)
     nrows, ncols = v.size()
     for i in range(nrows):
         # elementwise portion of softmax, one row of qkt
         qkti = torch.exp(qkt[i] - qkti_max[i]) / sum_of_exp[i]
         for j in range(ncols):
             # vector dot product with column of v
-            y[i][j] = torch.vdot(qkti, v[:, j]).item()
+            y2[i][j] = torch.vdot(qkti, v[:, j]).item()
+    assert(torch.allclose(y, y2, rtol=rtol, atol=atol))
 
     # all done :)
     return y
 
 
 def py_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tensor:
-    # functionally, this code performs the following operations:
-    #
-    # scores = torch.nn.functional.softmax(qkt, dim=-1)
-    # y = torch.matmul(scores, v)
-    #
-    # the idea here is to never create the scores matrix, as it is quite large (seq_len x seq_len)
-    # instead, we do the softmax reduction ops first, which have smaller results, and then defer
-    # the softmax elementwise ops as part of matmul
 
-    # Note: this code operates row by row, but it could easily be done in groups of rows if that
-    # better fits the parallelization characteristics of the hardware, or tiles that align
-    # with the size needed for a local gemm engine
-
-    # compute the denominator, one per row
+    # compute the max and denominator, one per row
     nrows, ncols = v.size()
     qkti_max = qkt.max(-1)[0]  # ignore indices
     sum_of_exp = [torch.exp(qkt[i] - qkti_max[i]).sum().item() for i in range(nrows)]
 
-    # compute the matmul, one output pixel at a time (easily parallelized)
+    # compute the matmul, one output pixel at a time
     y = torch.empty_like(v)
     for i in range(nrows):
         # elementwise portion of softmax, one row of qkt
@@ -108,7 +100,6 @@ with torch.inference_mode():
     print(F'attn_output_golden:\n{attn_output_golden}')
     attn_output = my_attn(query, key, value)
     print(F'attn_output:\n{attn_output}')
-    rtol, atol = 1e-04, 1e-07
     if not torch.allclose(attn_output_golden, attn_output, rtol=rtol, atol=atol):
         for row in range(attn_output_golden.size(-2)):
             if not torch.allclose(attn_output_golden[row, :], attn_output[row, :], rtol=rtol, atol=atol):
