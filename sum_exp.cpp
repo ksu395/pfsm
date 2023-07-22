@@ -1,11 +1,7 @@
 #include <torch/extension.h>
 
-#include <vector>
+#include "reduce.h"
 
-// CUDA forward declaration
-torch::Tensor sum_exp_cuda(
-        torch::Tensor input,
-        torch::Tensor max_i);
 
 // C++ interface
 
@@ -15,11 +11,15 @@ torch::Tensor sum_exp_cuda(
 
 torch::Tensor sum_exp(
         const torch::Tensor input,
-        const torch::Tensor max_i)
+        const torch::Tensor max_i,
+        const int dim)
 {
     CHECK_INPUT(input);
+    CHECK_INPUT(max_i);
+    // for simplicity, only allow 2D reduction along rows
+    assert(dim == -1);
 
-    return sum_exp_cuda(input, max_i);
+    return reduce_sum_exp_cuda(input, max_i);
 }
 
 

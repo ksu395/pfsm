@@ -1,4 +1,6 @@
 import torch
+from torch.utils.cpp_extension import load
+
 
 torch.manual_seed(13)
 
@@ -15,11 +17,7 @@ torch.backends.cuda.matmul.allow_tf32 = False
 
 use_gpu = True
 
-from torch.utils.cpp_extension import load
-
-my_max = load(name='my_max', sources=['max.cpp', 'max.cu'], verbose=True)
-my_sum_exp = load(name='my_sum_exp', sources=['sum_exp.cpp', 'sum_exp.cu'], verbose=True)
-
+my_reduce = load(name='my_reduce', sources=['reduce.cpp', 'reduce.cu'], verbose=True)
 
 
 # See paper "Speed Is All You Need: On-Device Acceleration of Large Diffusion Models via GPU-Aware Optimizations"
@@ -41,12 +39,12 @@ def cu_partially_fused_softmax(qkt: torch.tensor, v: torch.tensor) -> torch.tens
     # compute the denominator, one per row
     # this could be done in a single pass by using online softmax
     nrows, ncols = v.size()
-    qkti_max = my_max.max(qkt, -1)
+    qkti_max = my_reduce.max(qkt, -1)
     qkti_max2 = qkt.max(-1)[0]  # ignore indices
     assert(torch.allclose(qkti_max, qkti_max2))
-    sum_of_exp = my_sum_exp.sum_exp(qkt, qkti_max)
-    # sum_of_exp2 = [torch.exp(qkt[i] - qkti_max[i]).sum().item() for i in range(nrows)]
-    # assert(torch.allclose(sum_of_exp, torch.Tensor(sum_of_exp2).cuda()));
+    sum_of_exp = my_reduce.sum_exp(qkt, qkti_max, -1)
+    sum_of_exp2 = [torch.exp(qkt[i] - qkti_max[i]).sum().item() for i in range(nrows)]
+    assert(torch.allclose(sum_of_exp, torch.Tensor(sum_of_exp2).cuda()));
 
     # compute the matmul, one output pixel at a time (easily parallelized)
     y = torch.empty_like(v)
@@ -122,6 +120,3 @@ with torch.inference_mode():
                     if not torch.allclose(attn_output_golden[row, col], attn_output[row, col], rtol=rtol, atol=atol):
                         print(F'not close gold={attn_output_golden[row, col]}, mine={attn_output[row, col]}')
         assert False
-
-
-
