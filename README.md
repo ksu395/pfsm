@@ -4,10 +4,6 @@
 
 The main objective here was to educate myself on somewhat more advanced CUDA kernel programming techniques. My prior experience in this area was rather basic.  This code has decent performance, but could be optimized much further.
 
-As I got into the implementation, I realized that this fusion is probably not a good one for Ampere or later Nvidia cards, as using TensorCores is probably better.
-I believe that TensorCores cannot be used in this fusion, as there are row-dependent math ops needed for matrix A.
-Per the docs, kernels that utilize TensorCores can only apply position-independent operations, e.g. scale or offset by a scalar.
-
 If you are looking for better acceleration on modern Nvidia, please see [FlashAttention (fp16)](https://pytorch.org/blog/accelerated-pytorch-2/).
 
 ## What is Partially Fused SoftMax?
@@ -22,7 +18,11 @@ scores = torch.nn.functional.softmax(qkt, dim=-1)
 y = torch.matmul(scores, v)
 ```
 
-The idea here is to never create the scores matrix, as it can be quite large (seq_len, seq_len).  Instead, we do the softmax reduction ops first, which have much smaller results, and then defer the softmax elementwise ops as part of matmul.
+The key idea here is to never create the scores matrix, as it can be quite large (seq_len, seq_len).  Instead, we do the softmax reduction ops first, which have much smaller results, and then defer the softmax elementwise ops as part of matmul.
+
+As I got into the implementation, I realized that this fusion is probably not a good one for Ampere or later Nvidia cards, as using TensorCores is probably better.
+I believe that TensorCores cannot be used in this fusion, as there are row-dependent math ops needed for matrix A.
+Per the docs, kernels that utilize TensorCores can only apply position-independent operations, e.g. scale or offset by a scalar.
 
 For simplicity. this code does not consider:
 - backward functions
