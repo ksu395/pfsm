@@ -45,9 +45,11 @@ This was a secondary reference implementation that provided intermediate vectors
 
 ### CUDA PFSM (my_sdp_attn() + cu_partially_fused_softmax())
 
-This implementation does the same operations as the previous section, but delegates the math to CUDA via the Ninja JIT compiler and pybind linkage to the C code.  The two CUDA kernels are described in more detail in the following sections.
+This implementation does the same operations as the previous section, but delegates the math to CUDA via the Ninja JIT compiler and pybind linkage to the C code.  See [CUSTOM C++ AND CUDA EXTENSIONS](https://pytorch.org/tutorials/advanced/cpp_extension.html) for more details.
 
-## Reduction Ops (reduce.cu)
+The two CUDA kernels are described in more detail in the following sections.
+
+#### Reduction Ops (reduce.cu)
 
 The initial implementation split the input in half horizontally and each thread reduced one pixel from left half with one pixel from the right half, and then recursively continued until only a single column of output remained.
 Functionally, this worked fine, but the first partial output was still quite large (seq_len, seq_len / 2).
@@ -58,9 +60,12 @@ This deck has several advanced optimizations that I did not implement, but I did
 This solved the problem above: the first partial output size is now only (seq_len, gridDim.x).
 Plus, it probably runs much faster.
 
-## Fused Matmul (matmul.cu)
+#### Fused Matmul (matmul.cu)
 
 Again, the initial implementation was a very basic vector dot-product, with one thread per output pixel.
 
 The CUDA C Programming guide, section [3.2.4 Shared Memory](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory), describes how to use shared memory to reduce the number of memory accesses.  After working with shared memory in the reduce code, this was a fairly straight forward enhancement to implement.
- 
+
+## Addtional References
+[An Even Easier Introduction to CUDA](https://developer.nvidia.com/blog/even-easier-introduction-cuda/)  
+[Using Shared Memory in CUDA C/C++](https://developer.nvidia.com/blog/using-shared-memory-cuda-cc/)
