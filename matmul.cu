@@ -3,8 +3,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-#include <vector>
-
 #include "matmul.h"
 
 
@@ -54,6 +52,7 @@ __global__ void fused_matmul_cuda_kernel(
     output[rowC][colC] = out;
 }
 
+
 torch::Tensor fused_matmul_cuda(
         const torch::Tensor scores,
         const torch::Tensor max_i,
@@ -65,18 +64,18 @@ torch::Tensor fused_matmul_cuda(
     const auto b_rows = v.size(0);
     const auto b_cols = v.size(1);
     // for simplicity, enforce power of 2 shapes
-    assert(a_rows > 0 && !(a_rows & (a_rows-1)));
-    assert(a_cols > 0 && !(a_cols & (a_cols-1)));
-    assert(max_i.size(0) == a_rows);
-    assert(sum_exp_i.size(0) == a_rows);
-    assert(b_rows > 0 && !(b_rows & (b_rows-1)));
-    assert(b_cols > 0 && !(b_cols & (b_cols-1)));
-    assert(a_cols == b_rows);
+    CHECK_POW_OF_2(a_rows);
+    CHECK_POW_OF_2(a_cols);
+    CHECK_POW_OF_2(b_rows);
+    CHECK_POW_OF_2(b_cols);
+    CHECK_EQUAL(a_cols, b_rows);
+    CHECK_EQUAL(max_i.size(0), a_rows);
+    CHECK_EQUAL(sum_exp_i.size(0), a_rows);
 
     const dim3 dimBlock(blockSizeX, blockSizeY);
     const dim3 dimGrid(b_cols / dimBlock.x, a_rows / dimBlock.y);
 
-    // todo: replace with cuda malloc?
+    // if the output is too large, the algo could need to change to flash attention
     auto output = scores.new_empty({long(a_rows), long(b_cols)});
 
     AT_DISPATCH_FLOATING_TYPES(scores.type(), "reduce_cuda_kernel", ([&] {

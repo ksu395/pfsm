@@ -10,7 +10,7 @@ If you are looking for better acceleration on modern Nvidia, please see [FlashAt
 
 See paper [Speed Is All You Need: On-Device Acceleration of Large Diffusion Models via GPU-Aware Optimizations](https://arxiv.org/pdf/2304.11267.pdf), 
 specifically section 3.2.1 and figure 2.
-Additonal details can be found in the related [blog post](https://ai.googleblog.com/2023/06/speed-is-all-you-need-on-device.html).<br>
+Additional details can be found in the related [blog post](https://ai.googleblog.com/2023/06/speed-is-all-you-need-on-device.html).<br>
 
 Functionally, this code performs the following operations:<br>
 ```
@@ -37,9 +37,9 @@ This is the reference implementation.  It simply calls torch.nn.functional.scale
 
 ### 2. Pytorch PFSM (my_sdp_attn() + py_partially_fused_softmax())
 
-This pytorch implementation a) decomposes the SDP into the individual oprations, and b) performs the PFSM.  The latter is computed by:
-1. column reduction to compute row-wise max
-2. column reduction to compute row-wise sum of exponentials
+This pytorch implementation a) decomposes the SDP into the individual operations, and b) performs the PFSM.  The latter is computed by:
+1. Reduction across Scores columns to compute row-wise max
+2. Reduction across Scores columns to compute row-wise sum of exp(x-max)
 3. fusing the elementwise ops with Scores matrix during the matmul with Values matrix
 
 This was a secondary reference implementation that provided intermediate vectors for debugging the CUDA implementation described in the next section.
@@ -59,7 +59,6 @@ This is counter to the purpose of this fusion: to reduce intermediate tensor siz
 While searching the Internet for a better solution, I came upon an Nvidia presentation by Mark Harris on [Optimizing Parallel Reduction in CUDA](https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf).
 This deck has several advanced optimizations that I did not implement, but I did borrow the concept of using shared memory to collaborate within a thread block to reduce multiple columns in one kernel invocation.
 This solved the problem above: the first partial output size is now only (seq_len, gridDim.x).
-Plus, it probably runs much faster.
 
 #### B. Fused Matmul (matmul.cu)
 

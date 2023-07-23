@@ -3,6 +3,8 @@
 
 #include <torch/extension.h>
 
+#include "check.h"
+
 
 extern torch::Tensor reduce_max_cuda(
         const torch::Tensor input);

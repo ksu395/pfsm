@@ -89,9 +89,7 @@ with torch.inference_mode():
                         print(F'not close gold={attn_output_golden[row, col]}, mine={attn_output[row, col]}')
         assert False
 
-    # simple elapsed time comparison
-    # Interestingly, tf32=True is only about 10% faster than without (seq_len=1024).  Maybe softmax consumes a higher
-    # proportion of cycles than matmul?
+    # simple elapsed time comparison (varies greatly with {seq_len,embed_dim})
     num_reps = 10000
     torch.backends.cuda.matmul.allow_tf32 = True
     tgt = timeit.timeit("gold_sdp_attn(query, key, value)", number=num_reps, globals=globals())
@@ -102,5 +100,4 @@ with torch.inference_mode():
     # example:
     # seq_len = 1024
     # embed_dim = 256
-    # gold_tf32=0.7721402010010934, gold=1.1091965369996615, mine=6.074295301999882
-
+    # gold_tf32=0.7734472790000382, gold=1.114761440000052, mine=6.112324146999981

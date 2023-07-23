@@ -3,6 +3,8 @@
 
 #include <torch/extension.h>
 
+#include "check.h"
+
 
 extern torch::Tensor fused_matmul_cuda(
         const torch::Tensor scores,
