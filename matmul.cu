@@ -9,7 +9,7 @@
 
 
 static const size_t blockSizeX = 16;
-static const size_t blockSizeY = 16;
+static const size_t blockSizeY = blockSizeX;
 
 
 template <typename scalar_t>
@@ -21,13 +21,37 @@ __global__ void fused_matmul_cuda_kernel(
         torch::PackedTensorAccessor32<scalar_t,2,torch::RestrictPtrTraits> output)
 {
     const auto a_cols = scores.size(1);
-    const int col = blockIdx.x * blockDim.x + threadIdx.x;
-    const int row = blockIdx.y * blockDim.y + threadIdx.y;
+    const int colC = blockIdx.x*blockDim.x + threadIdx.x;
+    const int rowC = blockIdx.y*blockDim.y + threadIdx.y;
 
-    output[row][col] = 0.0;
-    for (int i = 0; i < a_cols; ++i) {
-        output[row][col] += exp(scores[row][i] - max_i[row]) * v[i][col] / sum_exp_i[row];
+    float out = 0.0;
+    for (int b = 0; b < (a_cols / blockSizeX); ++b) {
+        const int rowA = rowC;
+        const int colA = b*blockDim.x + threadIdx.x;
+        const int rowB = b*blockDim.y + threadIdx.y;
+        const int colB = colC;
+
+        // scratchpads for caching inputs
+        __shared__ scalar_t spA[blockSizeY][blockSizeX];
+        __shared__ scalar_t spB[blockSizeY][blockSizeX];
+        __shared__ scalar_t spM[blockSizeY];
+        __shared__ scalar_t spSE[blockSizeY];
+
+        // load from global to scratchpads
+        spA[threadIdx.y][threadIdx.x] = scores[rowA][colA];
+        spB[threadIdx.y][threadIdx.x] = v[rowB][colB];
+        spM[threadIdx.y] = max_i[rowC];
+        spSE[threadIdx.y] = sum_exp_i[rowC];
+        __syncthreads();
+
+        // fused dot-product
+        for (int i = 0; i < blockSizeX; ++i) {
+            out += exp(spA[threadIdx.y][i] - spM[threadIdx.y]) * spB[i][threadIdx.x] / spSE[threadIdx.y];
+        }
+        __syncthreads();
     }
+
+    output[rowC][colC] = out;
 }
 
 torch::Tensor fused_matmul_cuda(
@@ -40,7 +64,7 @@ torch::Tensor fused_matmul_cuda(
     const auto a_cols = scores.size(1);
     const auto b_rows = v.size(0);
     const auto b_cols = v.size(1);
-    // for simplicity, enforce power of 2 shape
+    // for simplicity, enforce power of 2 shapes
     assert(a_rows > 0 && !(a_rows & (a_rows-1)));
     assert(a_cols > 0 && !(a_cols & (a_cols-1)));
     assert(max_i.size(0) == a_rows);
