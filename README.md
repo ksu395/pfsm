@@ -20,9 +20,9 @@ y = torch.matmul(scores, v)
 
 The key idea here is to never create the scores matrix, as it can be quite large (seq_len, seq_len).  Instead, we do the softmax reduction ops first, which have much smaller results, and then defer the softmax elementwise ops as part of matmul.
 
-As I got into the implementation, I realized that this fusion is probably not a good one for Ampere or later Nvidia cards, as using TensorCores is probably better.
-I believe that TensorCores cannot be used in this fusion, as there are row-dependent math ops needed for matrix A.
-Per the docs, kernels that utilize TensorCores can only apply position-independent operations, e.g. scale or offset by a scalar.
+As I got into the implementation, I realized that this fusion is probably not a good one for Volta or later Nvidia architectures, as using Tensor Cores is probably better.
+I believe that Tensor Cores cannot be used in this fusion, as there are row-dependent math ops needed for matrix A.
+Per the docs, kernels that utilize Tensor Cores can only apply position-independent operations, e.g. scale or offset by a scalar.
 
 For simplicity. this code does not consider:
 - backward functions
