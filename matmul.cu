@@ -19,15 +19,15 @@ __global__ void fused_matmul_cuda_kernel(
         torch::PackedTensorAccessor32<scalar_t,2,torch::RestrictPtrTraits> output)
 {
     const auto a_cols = scores.size(1);
-    const int colC = blockIdx.x*blockDim.x + threadIdx.x;
-    const int rowC = blockIdx.y*blockDim.y + threadIdx.y;
+    const auto colC = blockIdx.x*blockDim.x + threadIdx.x;
+    const auto rowC = blockIdx.y*blockDim.y + threadIdx.y;
 
     float out = 0.0;
-    for (int b = 0; b < (a_cols / blockSizeX); ++b) {
-        const int rowA = rowC;
-        const int colA = b*blockDim.x + threadIdx.x;
-        const int rowB = b*blockDim.y + threadIdx.y;
-        const int colB = colC;
+    for (auto b = 0; b < (a_cols / blockSizeX); ++b) {
+        const auto rowA = rowC;
+        const auto colA = b*blockDim.x + threadIdx.x;
+        const auto rowB = b*blockDim.y + threadIdx.y;
+        const auto colB = colC;
 
         // scratchpads for caching inputs
         __shared__ scalar_t spA[blockSizeY][blockSizeX];
@@ -43,7 +43,7 @@ __global__ void fused_matmul_cuda_kernel(
         __syncthreads();
 
         // fused dot-product
-        for (int i = 0; i < blockSizeX; ++i) {
+        for (auto i = 0; i < blockSizeX; ++i) {
             out += exp(spA[threadIdx.y][i] - spM[threadIdx.y]) * spB[i][threadIdx.x] / spSE[threadIdx.y];
         }
         __syncthreads();

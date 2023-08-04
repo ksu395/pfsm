@@ -13,8 +13,8 @@ typedef enum {
 } reduction_op;
 
 
-// this should be the smaller of a) max TB size for the target and b) seq_len
-// the larger it is, the smaller the sizer of first partial output
+// this should be the smallest of a) max TB size for the target and b) seq_len
+// the larger it is, the smaller the size of first partial output
 // but any larger than seq_len will result in idle threads
 static const size_t blockSize = 512;
 
@@ -28,17 +28,17 @@ __global__ void reduce_cuda_kernel(
         torch::PackedTensorAccessor32<scalar_t,2,torch::RestrictPtrTraits> output)
 {
     // we have half as many blocks as inputs in X, so process every other block
-    const int col_in = blockIdx.x * blockDim.x * 2 + threadIdx.x;
-    const int row_in = blockIdx.y * blockDim.y + threadIdx.y;
+    const auto col_in = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+    const auto row_in = blockIdx.y * blockDim.y + threadIdx.y;
     // this block will start the reduction with the adjacent memory (one block width away)
-    size_t stride = blockDim.x;
+    auto stride = blockDim.x;
 
     if (row_in < num_rows_in && (col_in+stride) < num_cols_in) {
         // scratchpad for building up partial outputs
         // needs to be declared 1D, as the aspect ratio of the blocks changes between iterations
         __shared__ char* sp[blockSize*sizeof(scalar_t)];
         // this kernel only operates within a single row
-        scalar_t* row_base_sp = (scalar_t*)&sp[threadIdx.y*blockDim.x*sizeof(scalar_t)];
+        auto row_base_sp = reinterpret_cast<scalar_t*>(&sp[threadIdx.y*blockDim.x*sizeof(scalar_t)]);
 
         // initial value for scratchpad: reduction of this block and adjacent block
         if (reduce_op == REDUCE_OP_MAX) {
@@ -68,8 +68,9 @@ __global__ void reduce_cuda_kernel(
             __syncthreads();
         }
 
-        if (threadIdx.x == 0)
+        if (threadIdx.x == 0) {
             output[row_in][blockIdx.x] = row_base_sp[0];
+        }
     }
 }
 
