@@ -6,11 +6,11 @@
 #include "reduce.h"
 
 
-typedef enum {
+enum class reduction_op {
     REDUCE_OP_MAX,
     REDUCE_OP_SUM_EXP,
     REDUCE_OP_SUM
-} reduction_op;
+};
 
 
 // this should be the smallest of a) max TB size for the target and b) seq_len
@@ -41,14 +41,14 @@ __global__ void reduce_cuda_kernel(
         auto row_base_sp = reinterpret_cast<scalar_t*>(&sp[threadIdx.y*blockDim.x*sizeof(scalar_t)]);
 
         // initial value for scratchpad: reduction of this block and adjacent block
-        if (reduce_op == REDUCE_OP_MAX) {
+        if (reduce_op == reduction_op::REDUCE_OP_MAX) {
             row_base_sp[threadIdx.x] = max(input[row_in][col_in], input[row_in][col_in + stride]);
         }
-        if (reduce_op == REDUCE_OP_SUM_EXP) {
+        if (reduce_op == reduction_op::REDUCE_OP_SUM_EXP) {
             row_base_sp[threadIdx.x] = exp(input[row_in][col_in] - max_i[row_in]) +
                                     exp(input[row_in][col_in + stride] - max_i[row_in]);
         }
-        if (reduce_op == REDUCE_OP_SUM) {
+        if (reduce_op == reduction_op::REDUCE_OP_SUM) {
             row_base_sp[threadIdx.x] = input[row_in][col_in] + input[row_in][col_in + stride];
         }
         __syncthreads();
@@ -57,10 +57,10 @@ __global__ void reduce_cuda_kernel(
         while (stride > 1) {
             stride /= 2;
             if (threadIdx.x < stride) {
-                if (reduce_op == REDUCE_OP_MAX) {
+                if (reduce_op == reduction_op::REDUCE_OP_MAX) {
                     row_base_sp[threadIdx.x] = max(row_base_sp[threadIdx.x], row_base_sp[threadIdx.x + stride]);
                 }
-                if (reduce_op == REDUCE_OP_SUM_EXP || reduce_op == REDUCE_OP_SUM) {
+                if (reduce_op == reduction_op::REDUCE_OP_SUM_EXP || reduce_op == reduction_op::REDUCE_OP_SUM) {
                     // EXP only applies to very first reduction above
                     row_base_sp[threadIdx.x] = row_base_sp[threadIdx.x] + row_base_sp[threadIdx.x + stride];
                 }
@@ -106,9 +106,9 @@ torch::Tensor partial_reduce_cuda(
 
     // recurse until fully reduced
     if (num_cols_out > 1) {
-        if (reduce_op == REDUCE_OP_SUM_EXP) {
+        if (reduce_op == reduction_op::REDUCE_OP_SUM_EXP) {
             // EXP only applies to first iteration
-            return partial_reduce_cuda<REDUCE_OP_SUM>(output, max_i, num_rows_in, num_cols_out);
+            return partial_reduce_cuda<reduction_op::REDUCE_OP_SUM>(output, max_i, num_rows_in, num_cols_out);
         } else {
             return partial_reduce_cuda<reduce_op>(output, max_i, num_rows_in, num_cols_out);
         }
@@ -128,7 +128,7 @@ torch::Tensor reduce_sum_exp_cuda(
     CHECK_POW_OF_2(num_cols);
     CHECK_EQUAL(max_i.size(0), num_rows);
 
-    return partial_reduce_cuda<REDUCE_OP_SUM_EXP>(input, max_i, num_rows, num_cols);
+    return partial_reduce_cuda<reduction_op::REDUCE_OP_SUM_EXP>(input, max_i, num_rows, num_cols);
 }
 
 torch::Tensor reduce_max_cuda(
@@ -141,5 +141,5 @@ torch::Tensor reduce_max_cuda(
     CHECK_POW_OF_2(num_cols);
 
     static torch::Tensor max_i = torch::empty({1}); // unused for REDUCE_OP_MAX
-    return partial_reduce_cuda<REDUCE_OP_MAX>(input, max_i, num_rows, num_cols);
+    return partial_reduce_cuda<reduction_op::REDUCE_OP_MAX>(input, max_i, num_rows, num_cols);
 }
